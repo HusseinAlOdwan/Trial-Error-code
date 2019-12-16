@@ -177,3 +177,10 @@ substation_1 <- substation_1 %>%
   gather(key = minute.int, value = mean, c(-Date, -Days, -Weekday, -month))
 
 substation_1
+
+
+GAM <- substation_1
+GAM$minute.int <- as.integer(GAM$minute.int)
+GAM$Days <- as.integer(GAM$Days)
+GAM$month <- as.integer(GAM$month)
+str(GAM)
