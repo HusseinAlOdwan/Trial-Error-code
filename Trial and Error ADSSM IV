@@ -1,0 +1,213 @@
+install.packages("ggplot2")
+install.packages("tidyverse")
+library(tidyverse)
+library(ggplot2)
+install.packages("Hmisc")
+library(Hmisc)
+library(dplyr)
+
+
+
+?subset
+substation <- substation.data
+summary(substation)
+str(substation)
+substation[["Substation"]]=factor(substation[["Substation"]])
+str(substation)
+summary(substation$Substation)
+# substation real power for first 10 min
+sub <- substation[,1:3]
+head(sub)
+hist(sub$`1`,
+     main=" Power delivered by 410 substation(first 10 min of the day)", 
+     xlab="real power delivered by substation")
+
+
+# 410 substation real power for every 10 min/day
+library(reshape)
+subz <- melt(substation, id = c("Substation","Date"))
+head(subz)
+subz<-arrange(subz,Substation,Date)
+hist(subz$value)
+hist(subz$value, 
+     main=" Power delivered by 410 substation/10-minute period (Jun-Jul)", 
+     xlab="real power delivered by substation")
+#2
+dailyaverage <- substation.data[-2] %>%
+  group_by(Substation) %>%
+  summarise_all(mean)
+
+
+head(dailyaverage)
+
+gathered <- dailyaverage %>%
+  gather(key = time_interval, value = real_power, -Substation) %>%
+  mutate(time_interval = as.numeric(time_interval)) %>%
+  mutate(Substation = as.factor(Substation))
+
+overallmeans <- colMeans(dailyaverage[-1])
+overallmeansdf <- data.frame(time = 1:144, meanrealpower = overallmeans)
+ggplot(gathered, aes(x=time_interval, y = real_power, colour = factor(Substation))) +
+  geom_line(show.legend = FALSE) +
+  geom_line(data = overallmeansdf, aes(x = time, y = meanrealpower), colour = 'black', size = 1) +
+  labs(x = 'Time', y = 'Average Daily demand') +
+  ggtitle('All days')
+
+#3 
+
+
+
+date <- c(substation$Date)
+
+
+
+date
+
+subs_avg<-c(rowMeans(substation[,-1:-2]))
+substation<-substation%>%
+  mutate(subs_avg = subs_avg)
+subz_1 <- substation[,-3:-146]
+
+head(subz_1)
+
+
+
+
+
+
+
+mean(subz_1$subs_avg)
+
+library(ggplot2)
+library(tidyverse)
+ggplot(data = subz_1, mapping = aes(x =date, y = subs_avg, colour=factor(Substation))) +
+  geom_line(show.legend = F)+
+  geom_hline(yintercept=mean(subz_1$subs_avg), color = "black", size =1.5)
+
+head(subz_1)
+
+
+
+# All days 
+ggplot(data = subz_1, mapping = aes(x =date, y = subs_avg, colour=factor(Substation))) +
+  geom_line(show.legend = F)
+
+
+
+
+
+# weekdays function  
+install.packages("openair")
+library(openair)
+library(dplyr)
+library(plyr)
+subz_1$days <-weekdays(subz_1$Date)
+
+# saturday
+saturday<-subset(subz_1 , days ="Saturday")
+saturday<-rename(saturday,c(Substation = "subs"))
+ggplot(data = saturday, mapping = aes(x=Date, y = subs_avg, colour=factor(subs))) +
+  geom_line(show.legend = F)
+
+
+
+#Sunday
+sunday <- subset(subz_1,days =="Sunday")
+sunday<-rename(sunday,c(Substation="subs"))
+ggplot(data = sunday, mapping = aes(x=Date, y = subs_avg, colour=factor(subs))) +
+  geom_line(show.legend = F)
+
+#weekdays
+weekday<-subset(subz_1, days =="Monday"| days =="Tueday" | days =="Wednesday"| days=="Thursday"| days=="Friday")
+weekday  <-rename(weekday,c(Substation="subs.st"))
+ggplot(data = weekday, mapping = aes(x=Date, y = subs_avg, colour=factor(subs.st))) +
+  geom_line(show.legend = F)
+
+
+#4 
+
+mean_day <- substation.data[,-c(1,147,148)] %>%
+  
+  group_by(Date) %>%
+  
+  summarise_all("mean")
+
+
+
+head(mean_day)
+
+
+
+#5
+
+# GAM model
+install.packages("mgcv")
+library(mgcv)
+str(substation_1)
+
+#try with days 
+GAM <- substation_1
+GAM$minute.int <- as.integer(GAM$minute.int)
+GAM$Days <- as.integer(GAM$Days)
+GAM$month <-as.integer(GAM$month)
+str(GAM)
+
+GAM_dat1 <- GAM
+GAM <- GAM[GAM$Days %in% (1:20),]
+ggplot(GAM_dat1,aes(Days,mean))+ geom_line()
+
+GAM1_days <- gam(mean ~ s(Days), data = GAM, method = "REML")
+summary(GAM1_days)
+plot(GAM1_days)
+
+par(mfrow = c(2,2))
+gam.check(GAM1_days)
+# Effective degrees of freedom is 2.23 (<1)
+
+#try with min.int
+GAM_dat2 <- GAM
+GAM1 <- GAM[GAM$minute.int %in% (1:144),]
+ggplot(GAM_dat2,aes(minute.int,mean))+ geom_line()
+
+GAM1_minute.int <- gam(mean ~ s(minute.int), data = GAM1, method = "REML")
+summary(GAM1_minute.int)
+plot(GAM1_minute.int)
+
+par(mfrow = c(2,2))
+gam.check(GAM1_minute.int)
+# Effective degrees of freedom is 2.23 (<1)
+
+
+# run the cyclical smoother model~Days
+GAM_min_Days <- gam(mean ~ s(Days, bs =  'cc', k = 20) + s(minute.int), data = GAM, method = "REML")
+
+par(mfrow = c(2,2))
+gam.check(GAM_min_Days)
+
+
+par(mfrow = c(1,2))
+plot(GAM_min_Days)
+
+#run the cyclical smoother model~minute.int
+GAM_Days_min <- gam(mean ~ s(minute.int, bs =  'cc', k = 144) + s(Days), data = GAM, method = "REML")
+
+par(mfrow = c(2,2))
+gam.check(GAM_Days_min)
+# edf~days = 16.69 & edf~minute.int = 9
+
+
+par(mfrow = c(1,2))
+plot(GAM_Days_min)
+
+#try with month
+GAM_dat3 <- GAM
+GAM2 <- GAM[GAM$month %in% (6:7),]
+ggplot(GAM_dat3,aes(month,mean))+ geom_line()
+
+GAM1_month<- gam(mean ~ s(month), data = GAM2, method = "REML")
+summary(GAM1_month)
+plot(GAM1_month)
+
+par(mfrow = c(2,2))
+gam.check(GAM1_month)
+#edf~minute.int = 30.41 & edf~Days = 8.89
