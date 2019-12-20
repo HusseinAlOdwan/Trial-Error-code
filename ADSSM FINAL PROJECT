@@ -1,18 +1,20 @@
+install.packages("dplyr")
+library(dplyr)
 # loading the file
-load("C:/Users/husse/OneDrive/Documents/R/R working directory/Autumn_2012.RData")
+load("U:/My Documents/R/R WD/Autumn_2012.RData")
 
 # rename the file
 autumn <- Autumn_2012
 
-# Loading package 
+# Loading package
+install.packages("chron")
 require(chron)
 
-# convert the Julian date in the first row to a date 
-dates(15586, origin = c(month = 1,day = 1,year = 1970)) 
-
-# and the whole lot! 
-converted_dates <- dates(Autumn_2012[,2], origin = c(month = 1,day = 1,year = 1970)) 
-converted_dates[1:10]
+# Convert the dates for column 2 which is Date from Julian to normal dates
+autumn_date <- dates(autumn[,2], origin = c(month = 1,day = 1,year = 1970))
+autumn_date[1:10]
+autumn <- autumn %>%
+  mutate(Date = autumn_date)
 
 # Distance matrix between two values
 x <- autumn[,"1"] #ext 
@@ -28,10 +30,3 @@ d <- dist(as.matrix(autumn[,3:4]))
 
 # prepare hierarchical cluster 
 hc = hclust(d)
-
-# very simple dendrogram 
-plot(hc, hang=-1) #hang places the labels all at the same level
-
-# Cutting the dendrogram
-groups.2 <- cutree(hc,2) #Cut the dendrogram to give 2 clusters 
-table(autumn$Station,groups.2) #Cross tab of 2 cluster cut vs. substations
