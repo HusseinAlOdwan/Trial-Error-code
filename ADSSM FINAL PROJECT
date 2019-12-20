@@ -1,0 +1,37 @@
+# loading the file
+load("C:/Users/husse/OneDrive/Documents/R/R working directory/Autumn_2012.RData")
+
+# rename the file
+autumn <- Autumn_2012
+
+# Loading package 
+require(chron)
+
+# convert the Julian date in the first row to a date 
+dates(15586, origin = c(month = 1,day = 1,year = 1970)) 
+
+# and the whole lot! 
+converted_dates <- dates(Autumn_2012[,2], origin = c(month = 1,day = 1,year = 1970)) 
+converted_dates[1:10]
+
+# Distance matrix between two values
+x <- autumn[,"1"] #ext 
+y <- autumn[,"10"] 
+dist(rbind(x, y)) # This tell us that there is a distance of 15.60118
+
+# If we were to switch to the Manhattan method, the result would be different
+dist(rbind(x, y), method = "manhattan") # Using the manhattan method, the distance between the two values would
+# be 1310.247
+
+# We will be creating a distance matrix for the whole data set
+d <- dist(as.matrix(autumn[,3:4]))
+
+# prepare hierarchical cluster 
+hc = hclust(d)
+
+# very simple dendrogram 
+plot(hc, hang=-1) #hang places the labels all at the same level
+
+# Cutting the dendrogram
+groups.2 <- cutree(hc,2) #Cut the dendrogram to give 2 clusters 
+table(autumn$Station,groups.2) #Cross tab of 2 cluster cut vs. substations
