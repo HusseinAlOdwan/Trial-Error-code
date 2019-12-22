@@ -1,0 +1,224 @@
+# Question VIII
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(tidyr)
+
+
+
+
+#question 8
+Newsubstation <- read.csv("U:/My Documents/R/R WD/NewSubstations.csv", header = T, stringsAsFactors = F)
+str(Newsubstation)
+
+#remove X's
+
+library(dplyr)
+install.packages("gsubfn")
+library(gsubfn)
+
+names(Newsubstation) <- gsub("X", "", names(Newsubstation),fixed = T)
+
+str(Newsubstation)
+
+Newsubstation <- Newsubstation[,-1] %>%
+  mutate(Date= as.Date(Date))%>%
+  mutate(Substation=as.factor(Substation))
+
+levels(Newsubstation$Substation)
+
+
+
+
+Daily_avg_subs <- Newsubstation[,-2]%>%
+  group_by(Substation)%>%
+  summarise_all(mean)
+head(Daily_avg_subs)
+str(Daily_avg_subs)
+
+#All days 
+All_days <- Daily_avg_subs%>%
+  gather(key=time, value= realpower, -Substation)%>%
+  mutate(Substation= as.factor(Substation))%>%
+  mutate(time = as.numeric(time))%>%
+  group_by(time)
+
+O_mean <- colMeans(Daily_avg_subs[-1])
+O_mean_df <- data.frame(time= 1:144, Mean.power = O_mean)
+
+
+ggplot(All_days, aes(x= time, y= realpower, colour = factor(Substation)))+
+  geom_line(show.legend = F)+
+  geom_line(data = O_mean_df, aes(x = time, y = Mean.power), colour = 'black', size = 1) +
+  labs(x = 'Time', y = 'Average Daily demand') +
+  ggtitle('All days')
+
+
+#lets add the days into the data frame
+# weekdays function  
+install.packages("openair")
+library(openair)
+library(dplyr)
+library(plyr)
+
+substation__ <- data.frame(Newsubstation)
+names(substation__) <- gsub("X", "", names(substation__),fixed = T)
+
+substation__$Days <- weekdays(substation__$Date)
+
+#saturday 
+saturday <- subset(substation__, Days == "Saturday")
+
+saturday_sub  <- saturday[,c(-2,-147)]%>%
+  group_by(Substation)%>%
+  summarise_all(mean)%>%
+  gather(key=time, value= real.power,-Substation)%>%
+  mutate(time = as.numeric(time))%>%
+  mutate(Substation= as.factor(Substation))
+
+str(saturday$Substation)
+
+ggplot(saturday_sub, aes(x= time, y= real.power, colour = factor(Substation)))+
+  geom_line(show.legend = F)+
+  geom_line(data = O_mean_df, aes(x = time, y = Mean.power), colour = 'black', size = 1) +
+  labs(x = 'Time', y = 'Average Daily demand') +
+  ggtitle('Saturday')
+
+
+
+#sunday 
+sunday <- subset(substation__, Days == "Sunday")
+
+sunday_sub  <- sunday[,c(-2,-147)]%>%
+  group_by(Substation)%>%
+  summarise_all(mean)%>%
+  gather(key=time, value= real.power,-Substation)%>%
+  mutate(time = as.numeric(time))%>%
+  mutate(Substation= as.factor(Substation))
+
+str(sunday_sub$Substation)
+
+ggplot(sunday_sub, aes(x= time, y= real.power, colour = factor(Substation)))+
+  geom_line(show.legend = F)+
+  geom_line(data = O_mean_df, aes(x = time, y = Mean.power), colour = 'black', size = 1) +
+  labs(x = 'Time', y = 'Average Daily demand') +
+  ggtitle('Sunday')
+
+
+#Weekdays
+
+weekday <- subset(substation__, Days =="Monday"| Days =="Tueday" | Days =="Wednesday"| Days=="Thursday"| Days=="Friday")
+
+weekday_sub  <- weekday[,c(-2,-147)]%>%
+  group_by(Substation)%>%
+  summarise_all(mean)%>%
+  gather(key=time, value= real.power,-Substation)%>%
+  mutate(time = as.numeric(time))%>%
+  mutate(Substation= as.factor(Substation))
+
+str(weekday_sub$Substation)
+
+ggplot(weekday_sub, aes(x= time, y= real.power, colour = factor(Substation)))+
+  geom_line(show.legend = F)+
+  geom_line(data = O_mean_df, aes(x = time, y = Mean.power), colour = 'black', size = 1) +
+  labs(x = 'Time', y = 'Average Daily demand') +
+  ggtitle('Weekdays')
+
+# Question I
+Characteristics <- read.csv("Characteristics.csv")
+
+
+sum(is.na(Characteristics))
+sum(is_empty(Characteristics))
+
+head(Characteristics)
+
+
+hist(Characteristics$Percentage_IC)
+hist(Characteristics$Transformer_RATING)
+
+Characteristics  <- Characteristics%>%
+  mutate(TRANSFORMER_TYPE = as.factor(TRANSFORMER_TYPE))
+
+Transfmr.typ <- Characteristics$TRANSFORMER_TYPE
+
+barplot(prop.table(table(Transfmr.typ)))
+
+# Question III
+# loading the file
+Autumn_2012 <- read.csv("Autumn_2012.RData")
+
+# rename the file
+autumn <- Autumn_2012
+
+# Loading package 
+require(chron)
+
+# convert the Julian date in the first row to a date 
+dates(15586, origin = c(month = 1,day = 1,year = 1970)) 
+
+# and the whole lot! 
+converted_dates <- dates(Autumn_2012[,2], origin = c(month = 1,day = 1,year = 1970)) 
+converted_dates[1:10]
+
+# use this command to avoid rlang duplicates
+autumn <- autumn[ , !duplicated(colnames(autumn))]
+autumn <- autumn %>%
+  mutate(Date = converted_dates)
+
+daily_average <- autumn[,c(-2,-147:-291)]%>%
+  group_by(Station)%>%
+  summarise_all(mean)
+
+str(daily_average)
+
+sum(is.na(daily_average))
+sum(is_empty(daily_average))
+
+Autumn_dist2 <- dist(daily_average)
+Autumn_clust2 <- hclust(Autumn_dist2)
+
+Station <- daily_average$Station
+
+levels(Station) <- factor(Station)
+
+Station
+
+plot(Autumn_clust2, hang= -1, label= Station)
+
+------------------------------------------------------------------------------------------------------
+# Alternative to Question III
+  # use this command to avoid rlang duplicates
+  autumn <- autumn[ , !duplicated(colnames(autumn))]
+autumn <- autumn %>%
+  mutate(Date = converted_dates)
+
+# Creating the sample
+autumn_daily_avg<- autumn[,1:146] %>%
+  group_by(Date)%>%
+  summarise_all(mean)
+
+# check for NA values
+sum(is.na(autumn))
+
+# daily average for autumn
+aut <- autumn_daily_avg[,3:145]
+sum(is.na(aut))
+
+#Euclidean dist
+autumn_scale <- scale(aut)
+autumn_dist <-get_dist(autumn_scale, method="euclidean")
+
+p0b <- fviz_dist(autumn_dist, gradient = list(low = "#00AFBB", mid = "white",
+                                              high = "#FC4E07"))
+p0b
+
+#Hierarchical clustering & dendogram
+autumn_dist <- dist(aut)
+autumn_clust <- hclust(autumn_dist)
+
+plot(autumn_clust, hang= -1, label= autumn_daily_avg$Station)[1:10]
+
+autumn_cut <- cutree(autumn_clust,2)
+table(autumn_daily_avg$Date,autumn_cut)
+
