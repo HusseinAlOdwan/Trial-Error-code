@@ -1,3 +1,102 @@
+library(tidyverse)
+library(ggplot2)
+library(Rmisc)
+library(GGally)
+library(chron)
+
+# setting language for the names of days to english names
+# (no need to run on english computer)
+Sys.setlocale("LC_TIME","en_US.UTF-8")
+
+### Initial Analysis 
+### 1.
+
+Characteristics <- read.csv('Characteristics.csv',stringsAsFactors = F)
+head(Characteristics)
+# summarising data frame to look for missing values
+summary(is.na(Characteristics)) # No missing values
+# ordinary summary of data frame
+summary(Characteristics)
+
+p1 <- ggplot(Characteristics,aes(x=Percentage_IC))+
+  geom_histogram(colour='black',fill='blue')+
+  labs(x='Percentage of industrial and commercial customers',
+       y='frequency')
+
+levels(factor(Characteristics$Transformer_RATING)) # 17 levels
+
+p2 <- ggplot(Characteristics,aes(x=Transformer_RATING))+
+  geom_histogram(colour='black',fill='blue',bins = 17)+
+  # bins=17 because of 17 levels in Transformer_RATING
+  labs(x='Transformer Rating',
+       y='frequency')
+
+levels(factor(Characteristics$TRANSFORMER_TYPE)) # 2 levels with very long names
+# let's rename them for easier use:
+TT_fct <- factor(Characteristics$TRANSFORMER_TYPE)
+levels(TT_fct) <- c('Ground','Pole Mounted')
+Characteristics$TRANSFORMER_TYPE <- TT_fct
+
+p3 <- ggplot(Characteristics,aes(x=as.factor(TRANSFORMER_TYPE)))+
+  geom_bar(colour='black',fill='blue',bins = 2)+
+  labs(x='Transformer Type',
+       y='frequency')
+
+multiplot(p1,p2,p3,cols=3)
+
+# Compare plots with summary (median etc: does it fit? does it make sense?)
+
+### 2.
+
+# pair plot for substation characteristics facetted by transformer type
+ggpairs(Characteristics,columns = 2:6)
+
+# LV Feeder Count and Total customers fairly high correlation: as expected since
+# more feeders are needed if there is a higher number of power users.
+# There are a few differences regarding Transformer types:
+# The distribution of the number of total customers is quite focused on the lower end for pole mounted 
+# transformers; whereas for ground mounted transformers, the number of total customers is more
+# spread out. Similarly, the transformer ratings and their feeder counts are skewed towards
+# the lower end for pole mounted transformers and more spread out for ground mounted transformers. 
+# Furthermore, the percentage of industrial and commercial customers is similarly distributed: peaks
+# towards both ends (towards 0% and towards 100%).
+# --> correspondance between TType and Tot custom, Perc, and feeder count
+
+head(Characteristics)
+
+### 3. 
+
+# loading Autumn Data
+load('Autumn_2012.rdata')
+AutumnData <- Autumn_2012
+
+# Distance matrix
+head(AutumnData)
+# Separating Scaled measurements
+ScaledAutumn <- AutumnData[,1:146]
+ScaledAutumn
+# Averages per interval per substation
+DailyAverages <- ScaledAutumn[-2] %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  mutate(Station=as.factor(Station))
+# First look
+head(DailyAverages)
+# distance matrix
+autumn_dist <- dist(DailyAverages[-1])
+head(autumn_dist)
+# hclust & dendogram
+autumn_hclust <- hclust(autumn_dist)
+plot(hclust(autumn_dist))
+
+### 4.
+
+# There appears to be 2 distinct clusters
+clusters <- cutree(autumn_hclust,2)
+# now let's label each Substation with it's respective cluster
+DailyAverages$cluster <- as.factor(clusters)
+
+
 ### 5.
 # date and days modifications
 ScaledAutumn$Julian_Date <- ScaledAutumn$Date
