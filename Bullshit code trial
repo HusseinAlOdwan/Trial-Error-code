@@ -1,0 +1,240 @@
+### 5.
+# date and days modifications
+ScaledAutumn$Julian_Date <- ScaledAutumn$Date
+ScaledAutumn$Date <- dates(ScaledAutumn[,2], origin = c(month = 1,day = 1,year = 1970))
+ScaledAutumn$Day <- weekdays(as.Date(ScaledAutumn$Date,'%m/%d/%y'))
+# renaming the day levels for easier filtering in the future
+day_fact <- factor(ScaledAutumn$Day)
+levels(day_fact) <- c('Weekday','Weekday',
+                      'Saturday','Sunday',
+                      'Weekday','Weekday',
+                      'Weekday')
+
+ScaledAutumn$Day <- day_fact
+
+# Separating days
+
+
+###  Cluster 1 stations
+stations1 <- DailyAverages %>%
+  filter(cluster==1) %>%
+  select(Station)
+# filtering for cluster 1 stations for different days
+autumn1 <- ScaledAutumn %>%
+  filter(Station %in% stations1$Station)
+
+## All days 
+
+Station1All <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean of all days
+s1meanAll <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Week days
+
+Station1Week <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s1meanWeek <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Saturdays
+
+Station1Sat <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s1meanSat <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Sundays
+
+Station1Sun <- autumn1 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+
+s1meanSun <- autumn1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Plots
+
+s1p <- ggplot(Station1All, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s1meanAll,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 1')
+
+s1p1 <- ggplot(Station1Week, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s1meanWeek,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 1')
+
+s1p2 <- ggplot(Station1Sat, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s1meanSat,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 1')
+
+s1p3 <- ggplot(Station1Sun, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s1meanSun,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 1')
+
+
+### Cluster 2 stations
+stations2 <- DailyAverages %>%
+  filter(cluster==2) %>%
+  select(Station)
+
+# filtering for cluster 2 stations
+autumn2 <- ScaledAutumn %>%
+  filter(Station %in% stations2$Station)
+
+## All days
+
+Station2All <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s2meanAll <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Week days
+
+Station2Week <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s2meanWeek <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Saturdays
+
+Station2Sat <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s2meanSat <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Sundays
+
+Station2Sun <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+# mean
+s2meanSun <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Plots
+
+s2p <- ggplot(Station2All, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s2meanAll,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 2')
+
+s2p1 <- ggplot(Station2Week, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s2meanWeek,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 2')
+
+s2p2 <- ggplot(Station2Sat, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s2meanSat,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 2')
+
+s2p3 <- ggplot(Station2Sun, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=s2meanSun,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 2')
+
+dev.off()
+
+multiplot(s1p,s1p1,s1p2,s1p3,cols=2)
+multiplot(s2p,s2p1,s2p2,s2p3,cols=2)
