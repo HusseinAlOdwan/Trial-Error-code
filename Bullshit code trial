@@ -3,6 +3,7 @@ library(ggplot2)
 library(Rmisc)
 library(GGally)
 library(chron)
+library(cclust)
 
 # setting language for the names of days to english names
 # (no need to run on english computer)
@@ -91,11 +92,31 @@ plot(hclust(autumn_dist))
 
 ### 4.
 
+## KMEANS testing
+library(taRifx)
+
+tot_ss <- c()
+clust_num <- c()
+for(i in 2:10){
+  tot_ss[i-1] <- kmeans(DailyAverages[,c(-1,-146,-147)],i)$tot.withinss
+  clust_num[i-1] <- i
+}
+tot_ss
+clust_num
+
+tot_clust_df <- data.frame(clust_num,tot_ss)
+# Fit the smoothed spline (with 3 degrees of freedom)
+out.spl <- with(tot_clust_df, smooth.spline(clust_num,tot_ss,df=3))
+# Finally, predict to calculate the second derivative of which the maximum of y will
+# give us the point of maximum curvature.
+derivative.out <- with(tot_clust_df,predict(out.spl,x=clust_num,deriv=2))
+max(derivative.out$y)
+
+
 # There appears to be 2 distinct clusters
-clusters <- cutree(autumn_hclust,2)
+clusters <- cutree(autumn_hclust,4)
 # now let's label each Substation with it's respective cluster
 DailyAverages$cluster <- as.factor(clusters)
-
 
 ### 5.
 # date and days modifications
@@ -337,3 +358,328 @@ dev.off()
 
 multiplot(s1p,s1p1,s1p2,s1p3,cols=2)
 multiplot(s2p,s2p1,s2p2,s2p3,cols=2)
+
+### 6.
+
+Characteristics1 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations1$Station)
+
+Characteristics2 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations2$Station)
+
+# Cluster 1
+summary(Characteristics1)
+# Cluster 2
+summary(Characteristics2)
+
+### 7.
+
+# Let's dive deeper into the Substations characteristics:
+# for cluster 1
+ggpairs(Characteristics1,columns = 2:6)
+# for cluster 2
+ggpairs(Characteristics2, columns = 2:6)
+
+# Let's have a look at the percentages of the number of transformers per type per cluster:
+
+Transformer_types_clstr1 <- table(Characteristics1$TRANSFORMER_TYPE)
+Transformer_types_clstr2 <- table(Characteristics2$TRANSFORMER_TYPE)
+
+perc_types_clstr1 <- data.frame(Ground=Transformer_types_clstr1[1]/sum(Transformer_types_clstr1),
+                         Pole=Transformer_types_clstr1[2]/sum(Transformer_types_clstr1))
+rownames(perc_types_clstr1) <- 'Transformer type percentages for Cluster 1'
+
+perc_types_clstr2 <- data.frame(Ground=round(Transformer_types_clstr2[1]/sum(Transformer_types_clstr2),2),
+                         Pole=round(Transformer_types_clstr2[2]/sum(Transformer_types_clstr2),2))
+rownames(perc_types_clstr2) <- 'Transformer type percentages for Cluster 2'
+
+Transformer_types_percentages <- rbind(perc_types_clstr1,perc_types_clstr2)
+Transformer_types_percentages
+
+# Cluster 1:
+# - TransfType:
+# 80% of Ground vs 20% of pole, indicating predominantly urban landscape,
+# with a fairly important part of rural landscape. 
+# - Percentage: 
+# Percentage of Industrial and Commercial customers highly skewed towards the lower end:
+# close to 0, and a much lower amount of percentages when it comes closer to 100%. 
+# We can also see that it's the ground transformers that make up most of the values for 
+# high percentages. 
+# - Total number of customers = higher
+
+# Cluster 2:
+# - TransfType:
+#  Here we have approximately 96% of Ground mounted transformers and 4% of Pole mounted 
+# transformers (indicating a much larger ground mounted predominance than cluster 1).
+# --> mainly urban landscape
+# - Percentage: 
+# Here we see a more evenly distributed Percentage of IC: there still are two distinct peaks towards
+# both ends (0% and 100%) but this time, there is a much more even distribution and there are almost 
+# double as many high percentages as in cluster 1.
+# - Total number of customers  = higher 
+
+
+
+### 8.
+
+# Loading the data set
+NewSubstations <- read.csv('NewSubstations.csv')
+NewSubstations$Date <- as.Date(NewSubstations$Date)
+NewSubstations$Day <- weekdays(NewSubstations$Date)
+# renaming the day levels for easier filtering in the future
+new_day_fact <- factor(NewSubstations$Day)
+levels(new_day_fact) <- c('Weekday','Weekday',
+                      'Saturday','Sunday',
+                      'Weekday','Weekday',
+                      'Weekday')
+
+NewSubstations$Day <- new_day_fact
+NewSubstations$Day
+
+# find names of Substations to select them
+levels(factor(Week$Substation))
+
+## Substation 511079
+Sub1 <- NewSubstations %>%
+  filter(Substation=='511079')
+
+# Filter data frame by type of day
+Sub1All <- Sub1 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Week <- Sub1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sat <- Sub1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sun <- Sub1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub1DF <- rbind(Sub1All,Sub1Week,Sub1Sat,Sub1Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub1DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub1DF <- Sub1DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub1DF$time_interval <- as.numeric(gsub('X','',Sub1DF$time_interval))
+
+NewPlot1 <- ggplot(Sub1DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 511079')
+
+## Substation 512457
+Sub2 <- NewSubstations %>%
+  filter(Substation=='512457')
+
+# Filter data frame by type of day
+Sub2All <- Sub2 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Week <- Sub2 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sat <- Sub2 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sun <- Sub2 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub2DF <- rbind(Sub2All,Sub2Week,Sub2Sat,Sub2Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub2DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub2DF <- Sub2DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub2DF$time_interval <- as.numeric(gsub('X','',Sub2DF$time_interval))
+
+NewPlot2 <- ggplot(Sub2DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 512457')
+
+## Substation 532697
+Sub3 <- NewSubstations %>%
+  filter(Substation=='532697')
+
+# Filter data frame by type of day
+Sub3All <- Sub3 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Week <- Sub3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sat <- Sub3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sun <- Sub3 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub3DF <- rbind(Sub3All,Sub3Week,Sub3Sat,Sub3Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub3DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub3DF <- Sub3DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub3DF$time_interval <- as.numeric(gsub('X','',Sub3DF$time_interval))
+
+NewPlot3 <- ggplot(Sub3DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 532697')
+
+## Substation 552863
+Sub4 <- NewSubstations %>%
+  filter(Substation=='552863')
+
+# Filter data frame by type of day
+Sub4All <- Sub4 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Week <- Sub4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sat <- Sub4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sun <- Sub4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub4DF <- rbind(Sub4All,Sub4Week,Sub4Sat,Sub4Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub4DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub4DF <- Sub4DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub4DF$time_interval <- as.numeric(gsub('X','',Sub4DF$time_interval))
+
+NewPlot4 <- ggplot(Sub4DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 552863')
+
+## Substation 563729
+Sub5 <- NewSubstations %>%
+  filter(Substation=='563729')
+
+# Filter data frame by type of day
+Sub5All <- Sub5 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Week <- Sub5 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sat <- Sub5 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sun <- Sub5 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub5DF <- rbind(Sub5All,Sub5Week,Sub5Sat,Sub5Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub5DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub5DF <- Sub5DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub5DF$time_interval <- as.numeric(gsub('X','',Sub5DF$time_interval))
+
+NewPlot5 <- ggplot(Sub5DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 512457')
+
+multiplot(NewPlot1,NewPlot2,NewPlot3,NewPlot4,NewPlot5,cols=3)
+
+### 9
+
+## Find centers of clusters and measure the distances with new subs
+## Cluster centers?
+
+clust1_matrix <- autumn1[,c(-1,-2,-147,-148)]
+clust2_matrix <- autumn2[,c(-1,-2,-147,-148)]
