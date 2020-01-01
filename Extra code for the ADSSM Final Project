@@ -1,0 +1,41 @@
+# Question 9
+
+## Find centers of clusters and measure the distances with new subs
+# cluster centers, we need to calculate which cluster is the best and most 
+# appropirate for our analysis, we first need to scale the values
+
+install.packages("flexclust")
+library(flexclust)
+
+set.seed(1)
+data <- as.data.frame(NewSubstations)
+ind <- sample(nrow(NewSubstations), 50)
+
+data[["train"]] <- TRUE
+data[["train"]][ind] <- FALSE
+
+cl1 = kcca(data[data[["train"]] == TRUE, 4:147], k = 4, kccaFamily("kmeans"))
+cl1
+
+# Predicting the data and producing clusters in 
+pred_train <- predict(cl1)
+pred_test <- predict(cl1, newdata = data[data[["train"]] == FALSE, 4:147])
+image(cl1)
+points(data[data[["train"]] == TRUE, 4:147], col = pred_train, pch = 19, cex = 0.3)
+points(data[data[["train"]] == FALSE, 4:147], col = pred_test, pch = 22, bg = "orange")
+
+
+
+
+
+
+
+
+NewSubScaledSub <- data.frame()
+NewSubNumeric <- NewSubstations[,c(-1,-2,-3,-148)]
+for (i in 1:dim(NewSubNumeric)[1]){
+  NewSubScaledRow <- NewSubNumeric[i,]/max(NewSubNumeric[i,])
+  NewSubScaled <- rbind(NewSubScaledSub,NewSubScaledRow)
+}
+
+NewSubScaledSub$Substation <- NewSubstations$Substation
