@@ -1,0 +1,1895 @@
+---
+title: "Application of Data Science and Statistical Modelling - Final Project Part I (Question 1-10)"
+author: "Hussein Fayez Al-Odwan"
+date: "02/01/2020"
+output: pdf_document
+abstract: "The aim of this assignment is to perform clustering on power data recording at substations in order to see whether there are groups that have similar demand profiles and to see whether there are differences between seasons. This report will be analyzing different data sets that represent seasons; the seasons range from high summer to autumn. We will be performing different analyses such as hierarchical and k-means clustering, and data exploration. The report will be written in R markdown and we will be using R to analyze the data."
+---
+# Initial data analysis tasks
+## Question 1
+```{R, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(Rmisc)
+library(GGally)
+library(chron)
+library(cclust)
+library(taRifx)
+library(tidyr)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(lubridate)
+```
+```{R, warning = FALSE, message = FALSE}
+# Loading the file and inspecting it 
+Characteristics <- read.csv('Characteristics.csv',stringsAsFactors = F)
+head(Characteristics)
+
+# summarising data frame looking for NA values
+summary(is.na(Characteristics)) # No missing values
+
+# summary of data frame
+summary(Characteristics)
+
+# plotting a histogram of the percentage of industrial and commercial 
+# customers
+plot1 <- ggplot(Characteristics,aes(x=Percentage_IC))+
+  geom_histogram(colour='black',fill='blue')+
+  labs(x='Percentage of industrial and commercial customers',
+       y='frequency')
+
+# plotting a histogram of the tranformer rating
+plot2 <- ggplot(Characteristics,aes(x=Transformer_RATING)) +
+  geom_histogram(colour='black',fill='blue') + 
+  labs(x='Transformer Rating',
+       y='frequency')
+
+# plotting a histogram of the transformer type
+plot3 <- ggplot(Characteristics,aes(x=as.factor(TRANSFORMER_TYPE)))+
+  geom_bar(colour='black',fill='blue')+
+  labs(x='Transformer Type',
+       y='frequency')
+
+# Now we will be combining all three graphs together for an easier visual
+multiplot(plot1,plot2,plot3,cols=3)
+```
+## Question 2
+
+```{R, warning = FALSE, message = FALSE}
+# ggpairs plot using the ggally package to observe the summary of all the variables
+ggpairs(Characteristics,columns = 2:6)
+head(Characteristics)
+```
+
+The highest correlation exists between the LV feeder count and the total number of customers. The more customers are using power, the more feeders needed to power all the demand being received by the customers. There exists a low correlation between the transformer type and the total number of customers. The number of industrial and commerical customers is distributed evenly which shows a fair distribution all round the peaks.
+
+# Initial clustering tasks
+## Question 3
+```{R, message=FALSE, results='hide'}
+# loading Autumn Data
+load('Autumn_2012.rdata')
+autumn <- Autumn_2012
+```
+```{R, message=FALSE, results='hide'}
+# Separating Scaled measurements
+scaledautumn <- autumn[,1:146]
+scaledautumn
+```
+```{R, warning = FALSE, message = FALSE}
+# Averages per interval per substation
+daily_averages <- scaledautumn[-2] %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  mutate(Station=as.factor(Station))
+```
+```{R, message=FALSE, results='hide'}
+# First look
+head(daily_averages)
+
+# distance matrix
+autumn_dist <- dist(daily_averages[-1])
+head(autumn_dist)
+```
+```{R, warning = FALSE, message = FALSE, echo = FALSE}
+# hclust & dendogram
+autumn_hclust <- hclust(autumn_dist)
+plot(hclust(autumn_dist))
+```
+```{R, warning = FALSE, message = FALSE}
+# There appears to be 4 distinct clusters
+clusters <- cutree(autumn_hclust,4)
+```
+```{R, results = 'hide', message = FALSE}
+# now let's label each Substation with it's respective cluster
+table(daily_averages$Station, clusters)
+```
+```{R, message = FALSE}
+# We will be trying the k-means method as well to be more sure of the number of
+# clusters 
+tot_ss <- c()
+clust_num <- c()
+for(i in 1:10){
+  tot_ss[i] <- kmeans(daily_averages[,-1],i)$tot.withinss
+  clust_num[i] <- i
+}
+
+# now we plot the k-mean using the elbow method
+plot(clust_num,tot_ss,)
+
+# transforming the tot_clust to a data frame
+tot_clust_df <- data.frame(clust_num,tot_ss)
+
+# Fit the smoothed spline (with 3 degrees of freedom)
+out.spl <- with(tot_clust_df, smooth.spline(clust_num,tot_ss, df = 3))
+
+# here we are calculating the second derivative
+derivative.out <- with(tot_clust_df,predict(out.spl,x=clust_num,deriv=2))
+
+# now we are plotting the derivative 
+plot(derivative.out$x,derivative.out$y) # the number of clusters is 4 due to the bend
+# of the elbow method                
+
+# now we use kmeans function with the daily averages with 4 clusters
+clusters <- kmeans(daily_averages[, -1], 4)
+
+# assign to each respective cluster
+daily_averages$cluster <- as.factor(clusters$cluster)
+```
+We can see that the optimal number of clusters on the elbow plot is 4 clusters. And on the dedrogram, you can see that there are 4 clusters showing on it.
+
+# Question 5
+```{R, message = FALSE}
+# # some data wrangling for more efficient filtering
+scaledautumn$Julian_Date <- scaledautumn$Date
+scaledautumn$Date <- dates(scaledautumn[,2], origin = c(month = 1,day = 1,year = 1970))
+scaledautumn$Day <- weekdays(as.Date(scaledautumn$Date,'%m/%d/%y'))
+difdays <- factor(scaledautumn$Day)
+levels(difdays) <- c('Weekday','Weekday',
+                      'Saturday','Sunday',
+                      'Weekday','Weekday',
+                      'Weekday')
+scaledautumn$Day <- difdays
+```
+```{R, message = FALSE}
+# Filtering out days for cluster 1
+stations1 <- daily_averages %>%
+  filter(cluster==1) %>%
+  select(Station)
+
+# filtering for cluster 1 stations for different days
+autumn1 <- scaledautumn %>%
+  filter(Station %in% stations1$Station)
+
+# Cluster 1 (All days)
+Station1All <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Mean of all days for cluster 1
+station1meanAll <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Weekdays filtering for cluster 1
+Station1Week <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Mean filtering weekdays for cluster 1
+Station1meanWeek <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Saturdays filtering for cluster 1
+Station1Saturday <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering saturdays out mean for cluster 1
+Station1meanSat <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering sundays for cluster 1
+Station1Sunday <- autumn1 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering sundays mean for cluster 1
+Station1meanSunday <- autumn1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+```
+```{R, message = FALSE, echo = FALSE}
+# Plots
+
+Station1plot1 <- ggplot(Station1All, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=station1meanAll,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 1')
+
+Station1plot2 <- ggplot(Station1Week, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanWeek,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 1')
+
+Station1plot3 <- ggplot(Station1Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanSat,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 1')
+
+Station1plot4 <- ggplot(Station1Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 1')
+
+# Cluster 2 station filtering 
+stations2 <- daily_averages %>%
+  filter(cluster==2) %>%
+  select(Station)
+
+# Filtering for cluster 2 stations
+autumn2 <- scaledautumn %>%
+  filter(Station %in% stations2$Station)
+
+# grouping by station cluster 2 all days
+Station2Alldays <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# grouping by mean all days cluster 2
+Station2meanAlldays <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering by weekdays cluster 2
+Station2Weekday <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by mean weekdays cluster 2
+Station2meanWeekday <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by saturday cluster 2
+Station2Saturday <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering  by mean saturday cluster
+Station2meanSaturday <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by sunday cluster 2
+Station2Sunday <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by mean sunday cluster 2
+Station2meanSunday <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Now we assign variables to the plots to plot them later on
+Station2plot1 <- ggplot(Station2Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 2')
+
+Station2plot2 <- ggplot(Station2Weekday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanWeekday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 2')
+
+Station2plot3 <- ggplot(Station2Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 2')
+
+Station2plot4 <- ggplot(Station2Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 2')
+
+# Now we filter cluster 3 by station
+stations3 <- daily_averages %>%
+  filter(cluster==3) %>%
+  select(Station)
+
+# Filtering for cluster 3 stations with different day types
+autumn3 <- scaledautumn %>%
+  filter(Station %in% stations3$Station)
+
+# Filtering for all days cluster 3 
+Station3Alldays <- autumn3 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean of all days for cluster 3
+Station3meanAlldays <- autumn3 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering weekdays for cluster 3
+Station3Weekdays <- autumn3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for weekdays for cluster 3
+Station3meanWeekdays <- autumn3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering saturday for cluster 3
+Station3Saturday <- autumn3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for saturday for cluster 3
+Station3meanSaturday <- autumn3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering Sundays for cluster 3
+Station3Sunday <- autumn3 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for sunday for cluster 3
+Station3meanSunday <- autumn3 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# now we plot cluster 3 day types plots
+Station3plot1 <- ggplot(Station3Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 3')
+
+Station3plot2 <- ggplot(Station3Weekdays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanWeekdays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 3')
+
+Station3plot3 <- ggplot(Station3Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 3')
+
+Station3plot4 <- ggplot(Station3Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 3')
+
+# Finally, we will be filtering cluster 4 stations
+stations4 <- daily_averages %>%
+  filter(cluster==4) %>%
+  select(Station)
+
+# filtering for cluster 4 stations for different days
+autumn4 <- scaledautumn %>%
+  filter(Station %in% stations4$Station)
+
+# filtering all days for cluster 4 
+Station4Alldays <- autumn4 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean of all days for cluster 4
+Station4meanAlldays <- autumn4 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering the weekdays for cluster 4
+Station4Weekdays <- autumn4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering the mean of weekdays of cluster 4
+Station4meanWeekdays <- autumn4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for saturdays for cluster 4
+Station4Saturday <- autumn4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for the mean for saturday cluster 4
+Station4meanSaturday <- autumn4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for Sundays for cluster 4
+Station4Sunday <- autumn4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for the mean of sundays for cluster 4
+Station4meanSundays <- autumn4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Now finally, we will be assigning variables to the plots for cluster 4
+Station4plot1 <- ggplot(Station4Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 4')
+
+Station4plot2 <- ggplot(Station4Weekdays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanWeekdays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 4')
+
+Station4plot3 <- ggplot(Station4Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 4')
+
+Station4plot4 <- ggplot(Station4Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanSundays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 4')
+```
+```{R, message = FALSE}
+# now we will be combining all the plots and multiplotting them for easier viewing
+multiplot(Station1plot1, Station1plot2, Station1plot3, Station1plot4, cols=2)
+multiplot(Station2plot1, Station2plot2, Station2plot2, Station2plot4, cols=2)
+multiplot(Station3plot1, Station3plot2, Station3plot3, Station3plot4, cols=2)
+multiplot(Station4plot1, Station4plot2, Station4plot3, Station4plot4, cols=2)
+```
+
+# Question 6
+```{R, message = FALSE}
+# now for each substation we need to filter it out by substation
+Characteristics1 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations1$Station)
+Characteristics2 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations2$Station)
+Characteristics3 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations3$Station)
+Characteristics4 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations4$Station)
+
+# now we are able to generate summaries for cluster 1-4 respectively
+summary(Characteristics1)
+summary(Characteristics2)
+summary(Characteristics3)
+summary(Characteristics4)
+```
+
+# Question 7
+```{R message=FALSE, eval = TRUE, echo = TRUE}
+# No we will be plotting the ggpairs of the characteristics to observe and describe
+# any patterns going on in the data
+ggpairs(Characteristics1,columns = 2:6) # cluster 1
+ggpairs(Characteristics2, columns = 2:6) # cluster 2
+ggpairs(Characteristics3,columns = 2:6) # cluster 3
+ggpairs(Characteristics4, columns = 2:6) # cluster 4
+
+# now we will be analyzing the percentage ratio between the characteristics and the
+# transformer type
+Transformer_types_clstr1 <- table(Characteristics1$TRANSFORMER_TYPE)
+Transformer_types_clstr2 <- table(Characteristics2$TRANSFORMER_TYPE)
+Transformer_types_clstr3 <- table(Characteristics3$TRANSFORMER_TYPE)
+Transformer_types_clstr4 <- table(Characteristics4$TRANSFORMER_TYPE)
+
+# Pole vs ground percetange ratio
+percentagecluster1 <- data.frame(Ground=Transformer_types_clstr1[1]/sum(Transformer_types_clstr1),
+                                Pole=Transformer_types_clstr1[2]/sum(Transformer_types_clstr1))
+percentagecluster2 <- data.frame(Ground=round(Transformer_types_clstr2[1]/sum(Transformer_types_clstr2),2),
+                                Pole=round(Transformer_types_clstr2[2]/sum(Transformer_types_clstr2),2))
+percentagecluster3 <- data.frame(Ground=Transformer_types_clstr3[1]/sum(Transformer_types_clstr3),
+                                Pole=Transformer_types_clstr3[2]/sum(Transformer_types_clstr3))
+percentagecluster4 <- data.frame(Ground=round(Transformer_types_clstr4[1]/sum(Transformer_types_clstr4),2),
+                                Pole=round(Transformer_types_clstr4[2]/sum(Transformer_types_clstr4),2))
+
+# renaming the row names to each respective cluster
+rownames(percentagecluster1) <- 'Cluster 1 percentage ratio'
+rownames(percentagecluster2) <- 'Cluster 2 percentage ratio'
+rownames(percentagecluster3) <- 'Cluster 3 percentage ratio'
+rownames(percentagecluster4) <- 'Cluster 4 percentage ratio'
+
+# now use rbind function to make it into a table 
+totalpercentages <- rbind(percentagecluster1,
+                          percentagecluster2,
+                          percentagecluster3,
+                          percentagecluster4)
+
+# output of percentages
+totalpercentages
+```
+
+* For cluster 1: We can observe that the most prevalent transformer is the ground transformer with a 95% percentage. The percentage of commercial customers vs industrial is mostly skewed towards the origin point. Most of the ground transformers are associated with the high percentages produced. This may indicate that we are dealing with villages and countryside towns; essentially less populated and dense areas. If we take a look at the grid reference, we can see that it is rightfully villages and smaller towns.
+
+* For cluster 2: We can see for cluster 2 there is high percentage of 93% for ground  and 7% for pole. Percentage of total customers distribution is skewed from the origin point 0 and the percentage_IC is skewed from the max point 100. They are on opposite sides of the distribution. This shows that this cluster is composed of towns and cities. More specifically, areas with a big population.
+
+* For cluster 3: With this cluster, we can see that approximately 40% of the tranformers are pole, while the rest are ground which is 60%. The distirbution between the number of feeders and the number of customers seems like a normal distirbution. The correlation between them is 64.2% which is an adquate correlation between the two variables. This shows that this cluster is composed of industrial and commercial areas, according to the national grid.
+
+* For cluster 4: With the followning cluster, we can that 61% of the transformers are ground and 39% are pole, predominantly ground. The correlation between the number of feeders and the number of customers is quite high; approximately 82%. According to the national grid, it indicates that this cluster is reserved for motorways, which spend a lot of energy on power demand, especially during the night.
+
+# Allocating new substations 
+## Question 8
+```{R, eval = TRUE, echo = TRUE, results = 'hide'}
+# Loading the data set and inspecting the data
+NewSubstations <- read.csv('NewSubstations.csv')
+head(NewSubstations)
+```
+```{R, eval = TRUE, echo = FALSE, results = 'hide'}
+# using the as.data function to filter the new substations by date
+NewSubstations$Date <- as.Date(NewSubstations$Date)
+NewSubstations$Day <- weekdays(NewSubstations$Date)
+
+# renaming for easier filtering in the future
+difdays1 <- factor(NewSubstations$Day)
+levels(difdays1) <- c('Weekday','Weekday',
+                          'Saturday','Sunday',
+                          'Weekday','Weekday',
+                          'Weekday')
+NewSubstations$Day <- difdays1
+NewSubstations$Day
+
+## Substation 511079
+Sub1 <- NewSubstations %>%
+  filter(Substation=='511079')
+
+# Filter data frame by type of day
+Sub1All <- Sub1 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Week <- Sub1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sat <- Sub1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sun <- Sub1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub1DF <- rbind(Sub1All,Sub1Week,Sub1Sat,Sub1Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub1DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub1DF <- Sub1DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub1DF$time_interval <- as.numeric(gsub('X','',Sub1DF$time_interval))
+
+NewPlot1 <- ggplot(Sub1DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 511079')
+
+## Substation 512457
+Sub2 <- NewSubstations %>%
+  filter(Substation=='512457')
+
+# Filter data frame by type of day
+Sub2All <- Sub2 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Week <- Sub2 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sat <- Sub2 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sun <- Sub2 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub2DF <- rbind(Sub2All,Sub2Week,Sub2Sat,Sub2Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub2DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub2DF <- Sub2DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub2DF$time_interval <- as.numeric(gsub('X','',Sub2DF$time_interval))
+
+NewPlot2 <- ggplot(Sub2DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 512457')
+
+## Substation 532697
+Sub3 <- NewSubstations %>%
+  filter(Substation=='532697')
+
+# Filter data frame by type of day
+Sub3All <- Sub3 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Week <- Sub3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sat <- Sub3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sun <- Sub3 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub3DF <- rbind(Sub3All,Sub3Week,Sub3Sat,Sub3Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub3DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub3DF <- Sub3DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub3DF$time_interval <- as.numeric(gsub('X','',Sub3DF$time_interval))
+
+NewPlot3 <- ggplot(Sub3DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 532697')
+
+## Substation 552863
+Sub4 <- NewSubstations %>%
+  filter(Substation=='552863')
+
+# Filter data frame by type of day
+Sub4All <- Sub4 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Week <- Sub4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sat <- Sub4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sun <- Sub4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub4DF <- rbind(Sub4All,Sub4Week,Sub4Sat,Sub4Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub4DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub4DF <- Sub4DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub4DF$time_interval <- as.numeric(gsub('X','',Sub4DF$time_interval))
+
+NewPlot4 <- ggplot(Sub4DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 552863')
+
+## Substation 563729
+Sub5 <- NewSubstations %>%
+  filter(Substation=='563729')
+
+# Filter data frame by type of day
+Sub5All <- Sub5 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Week <- Sub5 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sat <- Sub5 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sun <- Sub5 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub5DF <- rbind(Sub5All,Sub5Week,Sub5Sat,Sub5Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub5DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub5DF <- Sub5DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub5DF$time_interval <- as.numeric(gsub('X','',Sub5DF$time_interval))
+
+NewPlot5 <- ggplot(Sub5DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 563729')
+```
+```{R, eval = TRUE, echo = TRUE}
+multiplot(NewPlot1,NewPlot2,NewPlot3,NewPlot4,NewPlot5,cols=2)
+```
+
+## Question 9
+```{R, warning = FALSE, message = FALSE}
+# install package flexclust for analysis
+library(flexclust) # it has an implemented predict method for k-means
+```
+```{R, eval = TRUE, echo = TRUE}
+# setting see to make sure code is reproducible and transforming the data into a dataframe
+set.seed(1)
+data <- as.data.frame(NewSubstations)
+ind <- sample(nrow(NewSubstations), 50)
+
+data[["train"]] <- TRUE
+data[["train"]][ind] <- FALSE
+
+# training the data using k means to allocate to 4 clusters
+cl1 = kcca(data[data[["train"]] == TRUE, 4:147], k = 4, kccaFamily("kmeans"))
+
+# results of 4 clusters
+cl1
+
+# predict train
+pred_train <- predict(cl1)
+
+# predict test
+pred_test <- predict(cl1, newdata = data[data[["train"]] == FALSE, 4:147])
+
+# visualize the clusters
+image(cl1)
+
+# add some colour to the plot and points
+points(data[data[["train"]] == TRUE, 4:147], col = pred_train, pch = 19, cex = 0.3)
+points(data[data[["train"]] == FALSE, 4:147], col = pred_test, pch = 22, bg = "orange")
+```
+
+## Question 10
+As we can see from the cluster diagram produced in question 9, it has allocated subsations to the 4 clusers. Yes, the cluster allocation is as expected.
+
+\pagebreak
+
+## Appendix
+``````{R, warning = FALSE, message = FALSE, echo = TRUE, eval = FALSE}
+library(tidyverse)
+library(ggplot2)
+library(Rmisc)
+library(GGally)
+library(chron)
+library(cclust)
+library(taRifx)
+library(tidyr)
+library(tidyverse)
+library(plyr)
+library(dplyr)
+library(lubridate)
+
+# Question 1 - Data Analysis 
+
+# Loading the file and inspecting it 
+Characteristics <- read.csv('Characteristics.csv',stringsAsFactors = F)
+head(Characteristics)
+
+# summarising data frame looking for NA values
+summary(is.na(Characteristics)) # No missing values
+
+# summary of data frame
+summary(Characteristics)
+
+# plotting a histogram of the percentage of industrial and commercial 
+# customers
+plot1 <- ggplot(Characteristics,aes(x=Percentage_IC))+
+  geom_histogram(colour='black',fill='blue')+
+  labs(x='Percentage of industrial and commercial customers',
+       y='frequency')
+
+# plotting a histogram of the tranformer rating
+plot2 <- ggplot(Characteristics,aes(x=Transformer_RATING)) +
+  geom_histogram(colour='black',fill='blue') + 
+  labs(x='Transformer Rating',
+       y='frequency')
+
+# plotting a histogram of the transformer type
+plot3 <- ggplot(Characteristics,aes(x=as.factor(TRANSFORMER_TYPE)))+
+  geom_bar(colour='black',fill='blue')+
+  labs(x='Transformer Type',
+       y='frequency')
+
+# Now we will be combining all three graphs together for an easier visual
+multiplot(plot1,plot2,plot3,cols=3)
+
+# Question 2
+
+# ggpairs plot using the ggally packge to observe the summary of all the variables
+ggpairs(Characteristics,columns = 2:6)
+head(Characteristics)
+
+# Question 3 
+
+# loading Autumn Data
+load('Autumn_2012.rdata')
+autumn <- Autumn_2012
+
+# Distance matrix
+head(autumn)
+
+# Separating Scaled measurements
+scaledautumn <- autumn[,1:146]
+scaledautumn
+
+# Averages per interval per substation
+daily_averages <- scaledautumn[-2] %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  mutate(Station=as.factor(Station))
+
+# First look
+head(daily_averages)
+
+# distance matrix
+autumn_dist <- dist(daily_averages[-1])
+head(autumn_dist)
+
+# hclust & dendogram
+autumn_hclust <- hclust(autumn_dist)
+plot(hclust(autumn_dist))
+
+# Question 4
+
+# There appears to be 4 distinct clusters
+clusters <- cutree(autumn_hclust,4)
+
+# now let's label each Substation with it's respective cluster
+table(daily_averages$Station, clusters)
+
+# We will be trying the k-means method as well to be more sure of the number of
+# clusters 
+tot_ss <- c()
+clust_num <- c()
+for(i in 1:10){
+  tot_ss[i] <- kmeans(daily_averages[,-1],i)$tot.withinss
+  clust_num[i] <- i
+}
+
+# now we plot the k-mean using the elbow method
+plot(clust_num,tot_ss,)
+
+# transforming the tot_clust to a data frame
+tot_clust_df <- data.frame(clust_num,tot_ss)
+
+# Fit the smoothed spline (with 3 degrees of freedom)
+out.spl <- with(tot_clust_df, smooth.spline(clust_num,tot_ss, df = 3))
+
+# here we are calculating the second derivative
+derivative.out <- with(tot_clust_df,predict(out.spl,x=clust_num,deriv=2))
+
+# now we are plotting the derivative 
+plot(derivative.out$x,derivative.out$y) # the number of clusters is 4 due to the bend
+# of the elbow method                
+
+# now we use kmeans function with the daily averages with 4 clusters
+clusters <- kmeans(daily_averages[, -1], 4)
+
+# assign to each respective cluster
+daily_averages$cluster <- as.factor(clusters$cluster)
+
+# Question 5
+
+# # some data wrangling for more efficient filtering
+scaledautumn$Julian_Date <- scaledautumn$Date
+scaledautumn$Date <- dates(scaledautumn[,2], origin = c(month = 1,day = 1,year = 1970))
+scaledautumn$Day <- weekdays(as.Date(scaledautumn$Date,'%m/%d/%y'))
+difdays <- factor(scaledautumn$Day)
+levels(difdays) <- c('Weekday','Weekday',
+                      'Saturday','Sunday',
+                      'Weekday','Weekday',
+                      'Weekday')
+scaledautumn$Day <- difdays
+
+# Filtering out days for cluster 1
+stations1 <- daily_averages %>%
+  filter(cluster==1) %>%
+  select(Station)
+
+# filtering for cluster 1 stations for different days
+autumn1 <- scaledautumn %>%
+  filter(Station %in% stations1$Station)
+
+# Cluster 1 (All days)
+Station1All <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Mean of all days for cluster 1
+station1meanAll <- autumn1 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Weekdays filtering for cluster 1
+Station1Week <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Mean filtering weekdays for cluster 1
+Station1meanWeek <- autumn1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Saturdays filtering for cluster 1
+Station1Saturday <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering saturdays out mean for cluster 1
+Station1meanSat <- autumn1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering sundays for cluster 1
+Station1Sunday <- autumn1 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering sundays mean for cluster 1
+Station1meanSunday <- autumn1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+## Plots
+
+Station1plot1 <- ggplot(Station1All, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=station1meanAll,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 1')
+
+Station1plot2 <- ggplot(Station1Week, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanWeek,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 1')
+
+Station1plot3 <- ggplot(Station1Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanSat,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 1')
+
+Station1plot4 <- ggplot(Station1Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station1meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 1')
+
+# Cluster 2 station filtering 
+stations2 <- daily_averages %>%
+  filter(cluster==2) %>%
+  select(Station)
+
+# Filtering for cluster 2 stations
+autumn2 <- scaledautumn %>%
+  filter(Station %in% stations2$Station)
+
+# grouping by station cluster 2 all days
+Station2Alldays <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# grouping by mean all days cluster 2
+Station2meanAlldays <- autumn2 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering by weekdays cluster 2
+Station2Weekday <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by mean weekdays cluster 2
+Station2meanWeekday <- autumn2 %>%
+  filter(Day=='Weekday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by saturday cluster 2
+Station2Saturday <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering  by mean saturday cluster
+Station2meanSaturday <- autumn2 %>%
+  filter(Day=='Saturday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by sunday cluster 2
+Station2Sunday <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Filtering by mean sunday cluster 2
+Station2meanSunday <- autumn2 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Now we assign variables to the plots to plot them later on
+Station2plot1 <- ggplot(Station2Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 2')
+
+Station2plot2 <- ggplot(Station2Weekday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanWeekday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 2')
+
+Station2plot3 <- ggplot(Station2Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 2')
+
+Station2plot4 <- ggplot(Station2Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station2meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 2')
+
+# Now we filter cluster 3 by station
+stations3 <- daily_averages %>%
+  filter(cluster==3) %>%
+  select(Station)
+
+# Filtering for cluster 3 stations with different day types
+autumn3 <- scaledautumn %>%
+  filter(Station %in% stations3$Station)
+
+# Filtering for all days cluster 3 
+Station3Alldays <- autumn3 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean of all days for cluster 3
+Station3meanAlldays <- autumn3 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering weekdays for cluster 3
+Station3Weekdays <- autumn3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for weekdays for cluster 3
+Station3meanWeekdays <- autumn3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering saturday for cluster 3
+Station3Saturday <- autumn3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for saturday for cluster 3
+Station3meanSaturday <- autumn3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering Sundays for cluster 3
+Station3Sunday <- autumn3 %>%
+  filter(Day=='Sunday')%>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean for sunday for cluster 3
+Station3meanSunday <- autumn3 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# now we plot cluster 3 day types plots
+Station3plot1 <- ggplot(Station3Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 3')
+
+Station3plot2 <- ggplot(Station3Weekdays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanWeekdays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 3')
+
+Station3plot3 <- ggplot(Station3Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 3')
+
+Station3plot4 <- ggplot(Station3Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station3meanSunday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 3')
+
+# Finally, we will be filtering cluster 4 stations
+stations4 <- daily_averages %>%
+  filter(cluster==4) %>%
+  select(Station)
+
+# filtering for cluster 4 stations for different days
+autumn4 <- scaledautumn %>%
+  filter(Station %in% stations4$Station)
+
+# filtering all days for cluster 4 
+Station4Alldays <- autumn4 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering mean of all days for cluster 4
+Station4meanAlldays <- autumn4 %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering the weekdays for cluster 4
+Station4Weekdays <- autumn4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering the mean of weekdays of cluster 4
+Station4meanWeekdays <- autumn4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for saturdays for cluster 4
+Station4Saturday <- autumn4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  group_by(Station)%>%
+  summarise_all(mean)%>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for the mean for saturday cluster 4
+Station4meanSaturday <- autumn4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-Julian_Date)%>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station)%>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for Sundays for cluster 4
+Station4Sunday <- autumn4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  group_by(Station) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# filtering for the mean of sundays for cluster 4
+Station4meanSundays <- autumn4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-Julian_Date) %>%
+  summarise_all(mean) %>%
+  gather(key=time_interval,value=scaled_power,-Station) %>%
+  mutate(time_interval=as.numeric(time_interval)) %>%
+  mutate(Station=as.factor(Station))
+
+# Now finally, we will be assigning variables to the plots for cluster 4
+Station4plot1 <- ggplot(Station4Alldays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanAlldays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('All Days Cluster 4')
+
+Station4plot2 <- ggplot(Station4Weekdays, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanWeekdays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Week Days Cluster 4')
+
+Station4plot3 <- ggplot(Station4Saturday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanSaturday,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Saturdays Cluster 4')
+
+Station4plot4 <- ggplot(Station4Sunday, aes(x=time_interval,y=scaled_power,colour=Station))+
+  geom_line(show.legend=FALSE,size=0.3)+
+  geom_line(data=Station4meanSundays,aes(x=time_interval,y=scaled_power),colour='black',size=1)+
+  labs(x='Time Interval',y='Average Demand') + 
+  ggtitle('Sundays Cluster 4')
+
+# now we will be combining all the plots and multiplotting them for easier viewing
+multiplot(Station1plot1, Station1plot2, Station1plot3, Station1plot4, cols=2)
+multiplot(Station2plot1, Station2plot2, Station2plot2, Station2plot4, cols=2)
+multiplot(Station3plot1, Station3plot2, Station3plot3, Station3plot4, cols=2)
+multiplot(Station4plot1, Station4plot2, Station4plot3, Station4plot4, cols=2)
+
+# Question 6
+
+# now for each substation we need to filter it out by substation
+Characteristics1 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations1$Station)
+Characteristics2 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations2$Station)
+Characteristics3 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations3$Station)
+Characteristics4 <- Characteristics %>%
+  filter(SUBSTATION_NUMBER %in% stations4$Station)
+
+# now we are able to generate summaries for cluster 1-4 respectively
+summary(Characteristics1)
+summary(Characteristics2)
+summary(Characteristics3)
+summary(Characteristics4)
+
+# Question 7
+
+# No we will be plotting the ggpairs of the characteristics to observe and describe
+# any patterns going on in the data
+ggpairs(Characteristics1,columns = 2:6) # cluster 1
+ggpairs(Characteristics2, columns = 2:6) # cluster 2
+ggpairs(Characteristics3,columns = 2:6) # cluster 3
+ggpairs(Characteristics4, columns = 2:6) # cluster 4
+
+# now we will be analyzing the percentage ratio between the characteristics and the
+# transformer type
+Transformer_types_clstr1 <- table(Characteristics1$TRANSFORMER_TYPE)
+Transformer_types_clstr2 <- table(Characteristics2$TRANSFORMER_TYPE)
+Transformer_types_clstr3 <- table(Characteristics3$TRANSFORMER_TYPE)
+Transformer_types_clstr4 <- table(Characteristics4$TRANSFORMER_TYPE)
+
+# Pole vs ground percetange ratio
+percentagecluster1 <- data.frame(Ground=Transformer_types_clstr1[1]/sum(Transformer_types_clstr1),
+                                Pole=Transformer_types_clstr1[2]/sum(Transformer_types_clstr1))
+percentagecluster2 <- data.frame(Ground=round(Transformer_types_clstr2[1]/sum(Transformer_types_clstr2),2),
+                                Pole=round(Transformer_types_clstr2[2]/sum(Transformer_types_clstr2),2))
+percentagecluster3 <- data.frame(Ground=Transformer_types_clstr3[1]/sum(Transformer_types_clstr3),
+                                Pole=Transformer_types_clstr3[2]/sum(Transformer_types_clstr3))
+percentagecluster4 <- data.frame(Ground=round(Transformer_types_clstr4[1]/sum(Transformer_types_clstr4),2),
+                                Pole=round(Transformer_types_clstr4[2]/sum(Transformer_types_clstr4),2))
+
+# renaming the row names to each respective cluster
+rownames(percentagecluster1) <- 'Cluster 1 percentage ratio'
+rownames(percentagecluster2) <- 'Cluster 2 percentage ratio'
+rownames(percentagecluster3) <- 'Cluster 3 percentage ratio'
+rownames(percentagecluster4) <- 'Cluster 4 percentage ratio'
+
+# now use rbind function to make it into a table 
+totalpercentages <- rbind(percentagecluster1,
+                          percentagecluster2,
+                          percentagecluster3,
+                          percentagecluster4)
+
+# output of percentages
+totalpercentages
+
+# Question 8
+
+# Loading the data set and inspecting the data
+NewSubstations <- read.csv('NewSubstations.csv')
+head(NewSubstations)
+
+# using the as.data function to filter the new substations by date
+NewSubstations$Date <- as.Date(NewSubstations$Date)
+NewSubstations$Day <- weekdays(NewSubstations$Date)
+
+# renaming for easier filtering in the future
+difdays1 <- factor(NewSubstations$Day)
+levels(difdays1) <- c('Weekday','Weekday',
+                          'Saturday','Sunday',
+                          'Weekday','Weekday',
+                          'Weekday')
+NewSubstations$Day <- difdays1
+NewSubstations$Day
+
+# find names of Substations to select them
+levels(factor(Week$Substation))
+
+## Substation 511079
+Sub1 <- NewSubstations %>%
+  filter(Substation=='511079')
+
+# Filter data frame by type of day
+Sub1All <- Sub1 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Week <- Sub1 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sat <- Sub1 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub1Sun <- Sub1 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub1DF <- rbind(Sub1All,Sub1Week,Sub1Sat,Sub1Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub1DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub1DF <- Sub1DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub1DF$time_interval <- as.numeric(gsub('X','',Sub1DF$time_interval))
+
+NewPlot1 <- ggplot(Sub1DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 511079')
+
+## Substation 512457
+Sub2 <- NewSubstations %>%
+  filter(Substation=='512457')
+
+# Filter data frame by type of day
+Sub2All <- Sub2 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Week <- Sub2 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sat <- Sub2 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub2Sun <- Sub2 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub2DF <- rbind(Sub2All,Sub2Week,Sub2Sat,Sub2Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub2DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub2DF <- Sub2DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub2DF$time_interval <- as.numeric(gsub('X','',Sub2DF$time_interval))
+
+NewPlot2 <- ggplot(Sub2DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 512457')
+
+## Substation 532697
+Sub3 <- NewSubstations %>%
+  filter(Substation=='532697')
+
+# Filter data frame by type of day
+Sub3All <- Sub3 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Week <- Sub3 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sat <- Sub3 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub3Sun <- Sub3 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub3DF <- rbind(Sub3All,Sub3Week,Sub3Sat,Sub3Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub3DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub3DF <- Sub3DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub3DF$time_interval <- as.numeric(gsub('X','',Sub3DF$time_interval))
+
+NewPlot3 <- ggplot(Sub3DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 532697')
+
+## Substation 552863
+Sub4 <- NewSubstations %>%
+  filter(Substation=='552863')
+
+# Filter data frame by type of day
+Sub4All <- Sub4 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Week <- Sub4 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sat <- Sub4 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub4Sun <- Sub4 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub4DF <- rbind(Sub4All,Sub4Week,Sub4Sat,Sub4Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub4DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub4DF <- Sub4DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub4DF$time_interval <- as.numeric(gsub('X','',Sub4DF$time_interval))
+
+NewPlot4 <- ggplot(Sub4DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 552863')
+
+## Substation 563729
+Sub5 <- NewSubstations %>%
+  filter(Substation=='563729')
+
+# Filter data frame by type of day
+Sub5All <- Sub5 %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Week <- Sub5 %>%
+  filter(Day=='Weekday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sat <- Sub5 %>%
+  filter(Day=='Saturday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+Sub5Sun <- Sub5 %>%
+  filter(Day=='Sunday') %>%
+  select(-Date,-Day,-X) %>%
+  group_by(Substation) %>%
+  summarise_all(mean) 
+
+# combining to prepare for plotting
+Sub5DF <- rbind(Sub5All,Sub5Week,Sub5Sat,Sub5Sun)
+
+# Adding the type of day for plotting multiple lines per type of day
+Sub5DF$Day_Type <- c('All days','Week days','Saturdays','Sundays')
+
+# Collapsing columns for plotting
+Sub5DF <- Sub5DF %>%
+  gather(key='time_interval',value='average_power',-Substation,-Day_Type) %>%
+  mutate(daytype=as.factor(Day_Type))
+
+# Remove the 'X' in the interval name to be able to convert it to numeric
+Sub5DF$time_interval <- as.numeric(gsub('X','',Sub5DF$time_interval))
+
+NewPlot5 <- ggplot(Sub5DF,aes(x=time_interval,y=average_power,colour=Day_Type))+
+  geom_line()+
+  labs(x='Time interval',y='Average real power demand')+
+  ggtitle('Substation 563729')
+
+multiplot(NewPlot1,NewPlot2,NewPlot3,NewPlot4,NewPlot5,cols=2)
+
+# Question 9
+
+# install package flexclust for analysis
+install.packages("flexclust")
+library(flexclust) # it has an implemented predict method for k-means
+
+# setting see to make sure code is reproducible and transforming the data into a dataframe
+set.seed(1)
+data <- as.data.frame(NewSubstations)
+ind <- sample(nrow(NewSubstations), 50)
+
+data[["train"]] <- TRUE
+data[["train"]][ind] <- FALSE
+
+# training the data using k means to allocate to 4 clusters
+cl1 = kcca(data[data[["train"]] == TRUE, 4:147], k = 4, kccaFamily("kmeans"))
+
+# results of 4 clusters
+cl1
+
+# predict train
+pred_train <- predict(cl1)
+
+# predict test
+pred_test <- predict(cl1, newdata = data[data[["train"]] == FALSE, 4:147])
+
+# visualize the clusters
+image(cl1)
+
+# add some colour to the plot and points
+points(data[data[["train"]] == TRUE, 4:147], col = pred_train, pch = 19, cex = 0.3)
+points(data[data[["train"]] == FALSE, 4:147], col = pred_test, pch = 22, bg = "orange")
+
+# Question 10 
+
+# The answer is on the document
+```
